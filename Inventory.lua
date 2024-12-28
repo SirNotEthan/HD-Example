@@ -12,6 +12,18 @@ local playerInventories = {}
 
 -- Remote event for client-server communication about inventory updates.
 local InventoryEvent = ReplicatedStorage:WaitForChild("InventoryEvent")
+local PrintEvent = ReplicatedStorage:WaitForChild("PrintEvent")
+
+-- Client Logging (HD App Reader Purposes)
+
+function sendPrintToClient(player, message)
+    local success, err = pcall(function()
+        PrintEvent:FireClient(player, message)
+    end)
+    if not success then
+        warn("Failed to send print message to client: " .. err)
+    end
+end
 
 -- Item Class Metatable
 -- Defines the structure and behavior of individual inventory items.
@@ -56,14 +68,17 @@ end
 function Inventory:AddItem(item)
     if not item or typeof(item) ~= "table" then
         warn("Invalid item passed to AddItem")
+        sendPrintToClient(self.Owner, "Failed to add item: Invalid item.")
         return
     end
 
     -- If the item already exists, increase its stack; otherwise, add it as new.
     if self.Items[item.ID] then
         self.Items[item.ID]:IncreaseStack(1)
+        sendPrintToClient(self.Owner, "Item stack increased: " .. item.Name)
     else
         self.Items[item.ID] = item
+        sendPrintToClient(self.Owner, "New item added: " .. item.Name)
     end
 
     -- Update the inventory UI to reflect the changes.
@@ -77,6 +92,9 @@ function Inventory:RemoveItem(itemID)
         -- Remove the item if its stack count reaches zero.
         if self.Items[itemID].StackCount <= 0 then
             self.Items[itemID] = nil
+            sendPrintToClient(self.Owner, "Item removed: " .. self.Items[itemID].Name)
+        else
+            sendPrintToClient(self.Owner, "Item stack decreased: " .. self.Items[itemID].Name)
         end
         self:UpdateUI()
     end
@@ -93,6 +111,9 @@ function Inventory:UpdateUI()
     end)
     if not success then
         warn("Failed to update UI for " .. self.Owner.Name .. ": " .. err)
+        sendPrintToClient(self.Owner, "Error updating inventory UI.")
+    else
+        sendPrintToClient(self.Owner, "Inventory UI updated.")
     end
 end
 
@@ -104,6 +125,9 @@ function SaveInventory(player, inventory)
     end)
     if not success then
         warn("Failed to save inventory for " .. player.Name .. ": " .. err)
+        sendPrintToClient(player, "Error saving inventory: " .. err)
+    else
+        sendPrintToClient(player, "Inventory saved successfully.")
     end
 end
 
@@ -119,6 +143,9 @@ function LoadInventory(player, inventory)
             item.StackCount = itemData.StackCount or 1
             inventory:AddItem(item)
         end
+        sendPrintToClient(player, "Inventory loaded from the DataStore.")
+    else
+        sendPrintToClient(player, "Error loading inventory from the DataStore.")
     end
 end
 
@@ -178,7 +205,11 @@ end
 local function OnPlayerAdded(player)
     local inventory = getPlayerInventory(player)
     if inventory then
+        -- Load inventory and notify client
         LoadInventory(player, inventory)
+        sendPrintToClient(player, "Inventory loaded successfully.")
+    else
+        sendPrintToClient(player, "Error loading inventory.")
     end
 
     -- Create and display the inventory UI.
@@ -189,6 +220,9 @@ local function OnPlayerAdded(player)
         local sword = Item.new("Sword", "sword001", "A basic sword.", 1)
         inventory:AddItem(harmingPotion)
         inventory:AddItem(sword)
+
+        -- Notify client about items added
+        sendPrintToClient(player, "New items added to your inventory.")
     end
 end
 
