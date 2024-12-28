@@ -87,8 +87,13 @@ function Inventory:UpdateUI()
     if not self.Owner or not self.Owner.Parent then
         return
     end
-    -- Sends the current inventory data to the client.
-    InventoryEvent:FireClient(self.Owner, self.Items)
+    -- Error handling for FireClient
+    local success, err = pcall(function()
+        InventoryEvent:FireClient(self.Owner, self.Items)
+    end)
+    if not success then
+        warn("Failed to update UI for " .. self.Owner.Name .. ": " .. err)
+    end
 end
 
 -- Functions for Saving and Loading Inventory
