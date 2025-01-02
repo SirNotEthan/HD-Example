@@ -1,8 +1,8 @@
 -- Services
--- These are references to essential Roblox services.
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local DataStoreService = game:GetService("DataStoreService")
+-- References to Roblox services used in this script.
+local Players = game:GetService("Players") -- Manages player-related events and actions.
+local ReplicatedStorage = game:GetService("ReplicatedStorage") -- Shared storage for remote events and modules.
+local DataStoreService = game:GetService("DataStoreService") -- Enables persistent data storage for players.
 
 -- DataStore for storing player inventory data persistently.
 local InventoryStore = DataStoreService:GetDataStore("PlayerInventory")
@@ -11,17 +11,17 @@ local InventoryStore = DataStoreService:GetDataStore("PlayerInventory")
 local playerInventories = {}
 
 -- Remote event for client-server communication about inventory updates.
-local InventoryEvent = ReplicatedStorage:WaitForChild("InventoryEvent")
-local PrintEvent = ReplicatedStorage:WaitForChild("PrintEvent")
+local InventoryEvent = ReplicatedStorage:WaitForChild("InventoryEvent") -- Used to send inventory updates to clients.
+local PrintEvent = ReplicatedStorage:WaitForChild("PrintEvent") -- Used to send debug messages or notifications to clients.
 
 -- Client Logging (HD App Reader Purposes)
-
+-- Sends messages to the client for debugging or notifications.
 function sendPrintToClient(player, message)
     local success, err = pcall(function()
-        PrintEvent:FireClient(player, message)
+        PrintEvent:FireClient(player, message) -- Sends the message to the client using the PrintEvent.
     end)
     if not success then
-        warn("Failed to send print message to client: " .. err)
+        warn("Failed to send print message to client: " .. err) -- Logs a warning if the operation fails.
     end
 end
 
@@ -32,23 +32,23 @@ Item.__index = Item
 
 -- Constructor for creating a new item.
 function Item.new(name, id, description, maxStack)
-    local self = setmetatable({}, Item)
-    self.Name = name
-    self.ID = id
-    self.Description = description or "No Description"
-    self.MaxStack = maxStack or 64 -- Default maximum stack size is 64.
-    self.StackCount = 1 -- Default stack count starts at 1.
+    local self = setmetatable({}, Item) -- Creates a new table and sets its metatable to Item.
+    self.Name = name -- Name of the item.
+    self.ID = id -- Unique identifier for the item.
+    self.Description = description or "No Description" -- Description of the item, defaults to "No Description".
+    self.MaxStack = maxStack or 64 -- Maximum number of items that can stack, defaults to 64.
+    self.StackCount = 1 -- Number of items in the stack, defaults to 1.
     return self
 end
 
 -- Method to increase the item's stack count.
 function Item:IncreaseStack(amount)
-    self.StackCount = math.min(self.StackCount + amount, self.MaxStack)
+    self.StackCount = math.min(self.StackCount + amount, self.MaxStack) -- Ensures stack count does not exceed MaxStack.
 end
 
 -- Method to decrease the item's stack count.
 function Item:DecreaseStack(amount)
-    self.StackCount = math.max(self.StackCount - amount, 0)
+    self.StackCount = math.max(self.StackCount - amount, 0) -- Ensures stack count does not go below 0.
 end
 
 -- Inventory Class Metatable
@@ -58,7 +58,7 @@ Inventory.__index = Inventory
 
 -- Constructor for creating a new inventory for a player.
 function Inventory.new(owner)
-    local self = setmetatable({}, Inventory)
+    local self = setmetatable({}, Inventory) -- Creates a new table and sets its metatable to Inventory.
     self.Owner = owner -- The player who owns this inventory.
     self.Items = {} -- Table to store items by their ID.
     return self
@@ -66,7 +66,7 @@ end
 
 -- Method to add an item to the inventory.
 function Inventory:AddItem(item)
-    if not item or typeof(item) ~= "table" then
+    if not item or typeof(item) ~= "table" then -- Validates that the item is a table.
         warn("Invalid item passed to AddItem")
         sendPrintToClient(self.Owner, "Failed to add item: Invalid item.")
         return
@@ -88,13 +88,14 @@ end
 -- Method to remove an item from the inventory.
 function Inventory:RemoveItem(itemID)
     if self.Items[itemID] then
-        self.Items[itemID]:DecreaseStack(1)
+        local item = self.Items[itemID]
+        item:DecreaseStack(1)
         -- Remove the item if its stack count reaches zero.
-        if self.Items[itemID].StackCount <= 0 then
+        if item.StackCount <= 0 then
             self.Items[itemID] = nil
-            sendPrintToClient(self.Owner, "Item removed: " .. self.Items[itemID].Name)
+            sendPrintToClient(self.Owner, "Item removed: " .. item.Name)
         else
-            sendPrintToClient(self.Owner, "Item stack decreased: " .. self.Items[itemID].Name)
+            sendPrintToClient(self.Owner, "Item stack decreased: " .. item.Name)
         end
         self:UpdateUI()
     end
@@ -102,12 +103,12 @@ end
 
 -- Method to update the player's inventory UI.
 function Inventory:UpdateUI()
-    if not self.Owner or not self.Owner.Parent then
+    if not self.Owner or not self.Owner.Parent then -- Validates that the player is still in the game.
         return
     end
     -- Error handling for FireClient
     local success, err = pcall(function()
-        InventoryEvent:FireClient(self.Owner, self.Items)
+        InventoryEvent:FireClient(self.Owner, self.Items) -- Sends the inventory data to the client.
     end)
     if not success then
         warn("Failed to update UI for " .. self.Owner.Name .. ": " .. err)
@@ -121,7 +122,7 @@ end
 -- Save the inventory data to the DataStore for persistence.
 function SaveInventory(player, inventory)
     local success, err = pcall(function()
-        InventoryStore:SetAsync(player.UserId, inventory.Items)
+        InventoryStore:SetAsync(player.UserId, inventory.Items) -- Saves the inventory to the DataStore.
     end)
     if not success then
         warn("Failed to save inventory for " .. player.Name .. ": " .. err)
@@ -134,7 +135,7 @@ end
 -- Load inventory data from the DataStore and populate the player's inventory.
 function LoadInventory(player, inventory)
     local success, data = pcall(function()
-        return InventoryStore:GetAsync(player.UserId)
+        return InventoryStore:GetAsync(player.UserId) -- Retrieves the inventory data from the DataStore.
     end)
     if success and data then
         for _, itemData in pairs(data) do
@@ -152,16 +153,16 @@ end
 -- Retrieve or initialize a player's inventory.
 function getPlayerInventory(player)
     if playerInventories[player.UserId] then
-        return playerInventories[player.UserId]
+        return playerInventories[player.UserId] -- Returns the existing inventory if it exists.
     end
-    local newInventory = Inventory.new(player)
+    local newInventory = Inventory.new(player) -- Creates a new inventory for the player.
     playerInventories[player.UserId] = newInventory
     return newInventory
 end
 
 -- Function to create the inventory UI for the player.
 local function createInventoryUI(player)
-    local PlayerGui = player:WaitForChild("PlayerGui")
+    local PlayerGui = player:WaitForChild("PlayerGui") -- Waits for the PlayerGui to load.
     if not PlayerGui then
         warn("PlayerGui not found for " .. player.Name)
         return
@@ -230,9 +231,9 @@ end
 local function OnPlayerRemoving(player)
     local inventory = getPlayerInventory(player)
     if inventory then
-        SaveInventory(player, inventory)
+        SaveInventory(player, inventory) -- Saves the inventory when the player leaves.
     end
-    playerInventories[player.UserId] = nil -- Clean up memory.
+    playerInventories[player.UserId] = nil -- Cleans up memory.
 end
 
 -- Connections
