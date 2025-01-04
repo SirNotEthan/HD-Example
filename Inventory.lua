@@ -95,39 +95,48 @@ end
 
 -- Method to add an item to the inventory.
 function Inventory:AddItem(item)
-    if not item or typeof(item) ~= "table" then -- Validates that the item is a table.
+    -- Validate that the item is a table
+    if not item or typeof(item) ~= "table" then
         warn("Invalid item passed to AddItem")
-        sendPrintToClient(self.Player, "Failed to add item: Invalid item.") -- Notifies Client of the item not being valid
+        sendPrintToClient(self.Owner, "Failed to add item: Invalid item.") -- Notify client of the invalid item
         return
     end
-    
-    -- If the item already exists, increase its stack; otherwise, add it as new.
-    if self.Items[item.ID] then 
-        self.Items[item.ID]:IncreaseStack(1)
-        sendPrintToClient(self.Player, "Item stack increased: " .. item.Name)
+    -- Check if the inventory is full
+    if self:GetItemCount() >= self.InventoryLimit then
+        sendPrintToClient(self.Owner, "Inventory is full.")
+        return
+    end
+    -- Handle adding the item
+    local existingItem = self.Items[item.ID]
+    if existingItem then
+        existingItem:IncreaseStack(1)
+        sendPrintToClient(self.Owner, "Item stack increased: " .. item.Name)
     else
         self.Items[item.ID] = item
-        sendPrintToClient(self.Player, "New item added: " .. item.Name)
+        sendPrintToClient(self.Owner, "New item added: " .. item.Name)
     end
-    
-    -- Update the inventory UI to reflect the changes.
+    -- Update the inventory UI
     self:UpdateUI()
 end
 
 -- Method to remove an item from the inventory.
 function Inventory:RemoveItem(itemID)
-    if self.Items[itemID] then
-        local item = self.Items[itemID]
-        item:DecreaseStack(1)
-        -- Remove the item if its stack count reaches zero.
-        if item.StackCount <= 0 then
-            self.Items[itemID] = nil
-            sendPrintToClient(self.Player, "Item removed: " .. item.Name)
-        else
-            sendPrintToClient(self.Player, "Item stack decreased: " .. item.Name)
-        end
-        self:UpdateUI()
+    -- Check if the item exists in the inventory
+    local item = self.Items[itemID]
+    if not item then
+        return
     end
+    -- Decrease the item's stack count
+    item:DecreaseStack(1)
+    -- Remove the item if its stack count reaches zero
+    if item.StackCount <= 0 then
+        self.Items[itemID] = nil
+        sendPrintToClient(self.Player, "Item removed: " .. item.Name)
+    else
+        sendPrintToClient(self.Player, "Item stack decreased: " .. item.Name)
+    end
+    -- Update the inventory UI
+    self:UpdateUI()
 end
 
 function Inventory:GetItems()
@@ -136,10 +145,12 @@ end
 
 -- Method to update the player's inventory UI.
 function Inventory:UpdateUI()
-    if not self.Player or not self.Player.Parent then -- Validates that the player is still in the game.
+    -- Check if the player is valid and still in the game
+    if not self.Player or not self.Player.Parent then
         return
     end
-    InventoryEvent:FireClient(self.Player, self.Items) -- Sends the inventory data to the client.
+    -- Send the inventory data to the client
+    InventoryEvent:FireClient(self.Player, self.Items)
 end
 
 -- Function to load inventory data and populate the player's inventory
@@ -175,17 +186,16 @@ local function loadMarketplace()
         return MarketStore:GetAsync("MarketItems")
     end)
 
-    -- If the data retrieval is successful, assign it to the marketItems table
-    if success and data then
-        marketItems = data
-        -- Print a success message if the data was loaded successfully
-        print("Market Data Succeeded")
-    else
-        -- If there was an error retrieving the data or no data is found, initialize an empty marketItems table
-        marketItems = {}
-        -- Print a warning if the data retrieval failed
+    -- Handle failure or absence of data immediately
+    if not success or not data then
+        marketItems = {} -- Initialize an empty table if data retrieval fails
         warn("Market Data Failed")
+        return
     end
+
+    -- Assign retrieved data to the marketItems table
+    marketItems = data
+    print("Market Data Succeeded")
 end
 
 -- Function to add a new item to the market
@@ -211,54 +221,47 @@ function addItemToMarket(player, item, price, category)
 end
 
 -- Function to handle the purchase of an item from the market
-function purchaseItemFromMarket(player, itemID) 
+function purchaseItemFromMarket(player, itemID)
     -- Loop through all the items in the market to find the one that matches the provided itemID
-    for index, item in ipairs(marketItems) do 
-        -- Check if the current item in the market matches the requested itemID
-        if item.ID == itemID then 
-            -- Check if the player has enough currency to purchase the item
-            if player.leaderstats.Currency.Value >= item.Price then 
-                -- Deduct the item's price from the player's currency
-                player.leaderstats.Currency.Value -= item.Price 
-                -- Get the seller's player object using the seller's UserId
-                local seller = game.Players:GetPlayerByUserId(item.Seller) 
-                -- If the seller is online, transfer the money directly to their account
-                if seller then
-                    seller.leaderstats.CurrencyValue.Value += item.Price
-                else 
-                    -- If the seller is offline, update their earnings in the DataStore
-                    local success, err = pcall(function() 
-                        -- Retrieve the seller's current earnings from the DataStore, default to 0 if not found
-                        local currentEarnings = EarningsStore:GetAsync(tostring(item.Seller)) or 0  
-                        -- Update the seller's earnings in the DataStore by adding the item's price
-                        EarningsStore:SetAsync(tostring(item.Seller), currentEarnings + item.Price)
-                    end) 
-                    -- If an error occurs while updating the seller's earnings, log a warning
-                    if not success then
-                        warn("Failed to update earnings for offline seller: " .. err)
-                    end
-                end
-                -- Remove the item from the market since it has been purchased
-                table.remove(marketItems, index)
-                -- Save the updated market items list to the DataStore
-                local success, err = pcall(function()
-                    -- Update the marketplace DataStore with the modified marketItems list
-                    MarketStore:SetAsync("MarketItems", marketItems)
-                end)
-                -- If an error occurs while saving the market data, log a warning
-                if not success then
-                    warn("Failed to save marketplace data: " .. err)
-                end
-                -- Return true to indicate the purchase was successful
-                return true
-            else
-                -- If the player doesn't have enough currency, return a message indicating so
-                return 'Not Enough Currency'
+    for index, item in ipairs(marketItems) do
+        if item.ID ~= itemID then
+            continue -- Skip to the next item if IDs don't match
+        end
+        -- Ensure the player has enough currency
+        if player.leaderstats.Currency.Value < item.Price then
+            return "Not Enough Currency"
+        end
+        -- Deduct the item's price from the player's currency
+        player.leaderstats.Currency.Value -= item.Price
+        -- Handle the seller's earnings
+        local seller = game.Players:GetPlayerByUserId(item.Seller)
+        if seller then
+            -- If the seller is online, transfer the money directly to their account
+            seller.leaderstats.CurrencyValue.Value += item.Price
+        else
+            -- If the seller is offline, update their earnings in the DataStore
+            local success, err = pcall(function()
+                local currentEarnings = EarningsStore:GetAsync(tostring(item.Seller)) or 0
+                EarningsStore:SetAsync(tostring(item.Seller), currentEarnings + item.Price)
+            end)
+            if not success then
+                warn("Failed to update earnings for offline seller: " .. err)
             end
         end
+        -- Remove the item from the market
+        table.remove(marketItems, index)
+        -- Save the updated market items list to the DataStore
+        local success, err = pcall(function()
+            MarketStore:SetAsync("MarketItems", marketItems)
+        end)
+        if not success then
+            warn("Failed to save marketplace data: " .. err)
+        end
+        -- Return true to indicate the purchase was successful
+        return true
     end
-    -- If the item was not found in the market, return a message indicating the item wasn't found
-    return 'Item Not Found'
+    -- Return a message if the item wasn't found in the market
+    return "Item Not Found"
 end
 
 -- Function to retrieve and reset a player's earnings
@@ -283,93 +286,89 @@ end
 
 -- Function to get all items from the marketplace that belong to a specific category
 function GetItemByCategory(category)
-    local items = {}  -- Create an empty table to store the items of the specified category
-    -- Iterate through all market items
+    -- Return an empty table if category is not provided
+    if not category then
+        return {}
+    end
+    local items = {} -- Table to store items of the specified category
+    -- Iterate through all market items and filter by category
     for _, item in ipairs(marketItems) do
-        -- If the item's category matches the specified category, add it to the 'items' table
         if item.Category == category then
             table.insert(items, item)
         end
     end
-    -- Return the list of items that belong to the specified category
-    return items
+    return items -- Return the filtered list of items
 end
 
 -- Function to save the player's inventory to a storage system
 function SaveInventory(player, inventory)
-    -- If there are no players in the save queue, start saving
-    if #saveQueue == 0 then
-        -- Add the player's UserId to the save queue
-        table.insert(saveQueue, player.UserId)
-
-        -- Try saving the player's inventory to the InventoryStore
-        local success, err = pcall(function()
-            InventoryStore:SetAsync(player.UserId, inventory.Items)  -- Save the player's inventory items to the store
-        end)
-
-        -- If saving fails, print an error message and send it to the player
-        if not success then
-            warn("Failed to save inventory for " .. player.Name .. ": " .. err)
-            sendPrintToClient(player, "Error saving inventory: " .. err)
-        else
-            -- If saving is successful, notify the player
-            sendPrintToClient(player, "Inventory saved successfully.")
-        end
+    -- Return if the save queue is not empty
+    if #saveQueue > 0 then
+        return
     end
+    -- Add the player's UserId to the save queue
+    table.insert(saveQueue, player.UserId)
+    -- Attempt to save the player's inventory
+    local success, err = pcall(function()
+        InventoryStore:SetAsync(player.UserId, inventory.Items) -- Save the inventory to the store
+    end)
+    -- Handle the result of the save operation
+    if not success then
+        warn("Failed to save inventory for " .. player.Name .. ": " .. err)
+        sendPrintToClient(player, "Error saving inventory: " .. err)
+        return
+    end
+    sendPrintToClient(player, "Inventory saved successfully.")
 end
 
 -- Periodically saves all inventories in the save queue every 60 seconds
 function PeriodicSave()
     while true do
-        wait(60)  -- Wait for 60 seconds before starting the save process
-
-        -- Iterate through all user IDs in the save queue
-        for _, userId in pairs(saveQueue) do
-            local player = Players:GetPlayerByUserId(userId)  -- Get the player by their UserId
+        task.wait(60) -- Wait for 60 seconds before starting the save process
+        -- Create a copy of the save queue to avoid modifying it during iteration
+        local currentQueue = saveQueue
+        saveQueue = {}
+        -- Iterate through all user IDs in the copied save queue
+        for _, userId in ipairs(currentQueue) do
+            local player = Players:GetPlayerByUserId(userId) -- Get the player by their UserId
             if player then
                 -- If the player is online, save their inventory
                 SaveInventory(player, getPlayerInventory(player))
             end
         end
-
-        -- Clear the save queue after saving all inventories
-        saveQueue = {}
     end
 end
-
 -- Start the PeriodicSave function as a separate task to run in the background
-spawn(PeriodicSave)
+task.spawn(PeriodicSave)
 
 -- Function to load a player's inventory from the storage system
 function LoadInventory(player, inventory)
-    -- Try loading the player's inventory from the InventoryStore
+    -- Attempt to load the player's inventory from the InventoryStore
     local success, data = pcall(function()
-        return InventoryStore:GetAsync(player.UserId)  -- Get the inventory data for the player from the store
+        return InventoryStore:GetAsync(player.UserId) -- Fetch the inventory data
     end)
-
-    -- If loading is successful and data exists, process the items
-    if success and data then
-        -- Iterate over the data and create items from it
-        for _, itemData in pairs(data) do
-            -- Create a new item instance using the data from the storage
-            local item = Item.new(
-                itemData.Name,         -- The name of the item
-                itemData.ID,           -- The unique ID of the item
-                itemData.Description,  -- The description of the item
-                itemData.MaxStack,     -- The maximum stack size of the item
-                itemData.Durability,   -- The durability of the item
-                itemData.Rarity,       -- The rarity of the item
-                itemData.Category,     -- The category of the item
-                itemData.IsQuestItem   -- A flag indicating if the item is a quest item
-            )
-            -- If StackCount is not provided, default it to 1
-            item.StackCount = itemData.StackCount or 1
-            -- Add the created item to the player's inventory
-            inventory:AddItem(item)
-        end
-    else
-        -- If loading fails, print a warning message
+    if not success then
         warn("Failed to load inventory for " .. player.Name)
+        return
+    end
+    if not data then
+        -- If no data is found, there's nothing to load
+        return
+    end
+    -- Process the retrieved inventory data
+    for _, itemData in pairs(data) do
+        local item = Item.new(
+            itemData.Name,         -- Name of the item
+            itemData.ID,           -- Unique ID of the item
+            itemData.Description,  -- Description of the item
+            itemData.MaxStack,     -- Maximum stack size
+            itemData.Durability,   -- Durability of the item
+            itemData.Rarity,       -- Rarity of the item
+            itemData.Category,     -- Category of the item
+            itemData.IsQuestItem   -- Quest item flag
+        )
+        item.StackCount = itemData.StackCount or 1 -- Default stack count to 1 if not provided
+        inventory:AddItem(item) -- Add the item to the inventory
     end
 end
 
@@ -459,19 +458,17 @@ end)
 
 -- Listen for a request from the client to fetch the player's inventory
 RequestPlayerInventory.OnServerEvent:Connect(function(player)
-    -- Retrieve the player's inventory from the 'playerInventories' table using the player's UserId
-    local inventory = playerInventories[player.UserId]
-    -- If the player has an inventory, proceed with sending it to the client
-    if inventory then
-        local itemNames = {}  -- Create an empty table to store the names of the items in the inventory
-        -- Iterate over all the items in the player's inventory
-        for _, item in pairs(inventory:GetItems()) do
-            -- Add each item's name to the 'itemNames' table
-            table.insert(itemNames, item.Name)
-        end
-        -- Fire an event back to the client, sending the list of item names in the player's inventory
-        RequestPlayerInventory:FireClient(player, itemNames)
+    local inventory = playerInventories[player.UserId]  -- Retrieve the player's inventory
+    if not inventory then
+        return  -- Exit early if no inventory is found
     end
+    local itemNames = {}  -- Create a table to store item names
+    -- Iterate over the player's inventory and collect item names
+    for _, item in pairs(inventory:GetItems()) do
+        table.insert(itemNames, item.Name)
+    end
+    -- Send the item names back to the client
+    RequestPlayerInventory:FireClient(player, itemNames)
 end)
 
 -- Listen for a request from the client to add an item to the market
